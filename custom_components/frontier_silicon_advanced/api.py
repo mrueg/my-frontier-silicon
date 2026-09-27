@@ -142,9 +142,16 @@ class FrontierSiliconAPI:
         if not await self._ensure_session(allow_create=allow_session_create, context=context):
             return None, "NO_SESSION"
 
-        url = f"{self.base_url}/GET/{path}?pin={self.pin}&sid={self.session_id}"
+        sid = self.session_id
+        url = f"{self.base_url}/GET/{path}?pin={self.pin}&sid={sid}"
         root, _ = await self._request(url, context=context)
         status = self._get_status(root)
+
+        if status in ("FS_SESSION_TIMEOUT", "FS_INVALID_SID") and allow_session_create:
+            if await self._renew_session(sid, context=f"{context}:retry"):
+                url = f"{self.base_url}/GET/{path}?pin={self.pin}&sid={self.session_id}"
+                root, _ = await self._request(url, context=f"{context}:retry")
+                status = self._get_status(root)
 
         if root is None:
             return None, status
@@ -243,8 +250,6 @@ class FrontierSiliconAPI:
     async def power_off(self) -> bool:
         """Turn device off."""
         status = await self.set_value("netRemote.sys.power", "0", context="power_off")
-        if status == "FS_OK":
-            await self.clear_session(context="power_off")
         return status == "FS_OK"
 
     async def set_volume(self, level: int) -> bool:
